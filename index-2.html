@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Gold Tracker</title>
+    <style>
+        :root { --bg: #000; --card: #1c1c1e; --input: #2c2c2e; --gold: #ffd700; --text: #fff; --border: #38383a; }
+        * { -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; padding-bottom: 220px; touch-action: manipulation; }
+        .card { background: var(--card); border-radius: 12px; padding: 15px; margin-bottom: 15px; border: 1px solid var(--border); }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        label { font-size: 10px; color: var(--gold); text-transform: uppercase; display: block; margin-bottom: 4px; font-weight: bold; }
+        input, textarea { 
+            width: 100%; padding: 14px; background: var(--input); border: 1px solid var(--border); 
+            border-radius: 10px; color: white; font-size: 16px; box-sizing: border-box; margin-bottom: 10px;
+        }
+        .btn { 
+            width: 100%; padding: 18px; background: var(--gold); color: black; border: none; 
+            border-radius: 12px; font-weight: bold; font-size: 16px; -webkit-appearance: none;
+            cursor: pointer; touch-action: manipulation;
+        }
+        .btn:active { opacity: 0.7; }
+        .footer { 
+            position: fixed; bottom: 0; left: 0; width: 100%; padding: 20px 20px 40px; 
+            padding-bottom: max(40px, env(safe-area-inset-bottom));
+            background: rgba(0,0,0,0.95); 
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            border-top: 1px solid var(--border); display: flex; gap: 10px; box-sizing: border-box;
+        }
+        .history-item { border-bottom: 1px solid var(--border); padding: 12px 0; display: flex; justify-content: space-between; }
+    </style>
+</head>
+<body>
+
+    <h2>💰 Gold Tracker</h2>
+
+    <div class="card" style="border: 1px solid var(--gold);">
+        <div class="grid">
+            <div><label>Store</label><input type="text" id="store"></div>
+            <div><label>% of Spot</label><input type="number" id="percent" value="95"></div>
+        </div>
+        <label>Spot Price (oz)</label><input type="number" id="spot" value="2650">
+    </div>
+
+    <div class="grid">
+        <div class="card"><label>Grams</label><div id="disp-w" style="font-size:1.5rem; font-weight:800;">0.00g</div></div>
+        <div class="card"><label>Total Paid</label><div id="disp-c" style="font-size:1.5rem; font-weight:800;">$0.00</div></div>
+    </div>
+
+    <div class="card">
+        <div class="grid">
+            <div><label>Purity %</label><input type="number" id="purity" placeholder="0" inputmode="decimal"></div>
+            <div><label>Grams</label><input type="number" id="weight" placeholder="0" inputmode="decimal"></div>
+        </div>
+        <label>Notes</label>
+        <textarea id="note" rows="1"></textarea>
+        <button class="btn" id="addBtn">ADD TO HISTORY</button>
+    </div>
+
+    <div id="history-list"></div>
+
+    <div class="footer">
+        <button class="btn" id="exportBtn" style="background:#34c759; color:white; flex:2;">Export CSV</button>
+        <button class="btn" id="resetBtn" style="background:#2c2c2e; color:white; flex:1;">Reset</button>
+    </div>
+
+    <script>
+        // Unique Key for this specific version
+        var DB_NAME = "GOLD_V7_ULTIMATE";
+        var purchases = [];
+
+        // Load data on start
+        window.onload = function() {
+            var saved = localStorage.getItem(DB_NAME);
+            if (saved) { purchases = JSON.parse(saved); }
+            
+            // Load Settings
+            document.getElementById('store').value = localStorage.getItem('s_store') || "";
+            document.getElementById('percent').value = localStorage.getItem('s_pct') || "95";
+            document.getElementById('spot').value = localStorage.getItem('s_spot') || "2650";
+            
+            // Add event listeners for buttons (iPhone-friendly)
+            document.getElementById('addBtn').addEventListener('click', addItem);
+            document.getElementById('exportBtn').addEventListener('click', exportCSV);
+            document.getElementById('resetBtn').addEventListener('click', resetAll);
+            
+            render();
+        };
+
+        function addItem() {
+            var p = parseFloat(document.getElementById('purity').value);
+            var w = parseFloat(document.getElementById('weight').value);
+            var s = parseFloat(document.getElementById('spot').value);
+            var pct = parseFloat(document.getElementById('percent').value) / 100;
+            
+            if (isNaN(p) || isNaN(w)) { alert("Missing data"); return; }
+
+            // Cost formula
+            var cost = (w * (p / 100) * 0.0321507 * s * pct).toFixed(2);
+            
+            var entry = {
+                p: p,
+                w: w,
+                c: cost,
+                n: document.getElementById('note').value || "",
+                d: new Date().toLocaleDateString()
+            };
+
+            purchases.push(entry);
+            saveAndRefresh();
+
+            // Clear inputs
+            document.getElementById('purity').value = "";
+            document.getElementById('weight').value = "";
+            document.getElementById('note').value = "";
+        }
+
+        function saveAndRefresh() {
+            localStorage.setItem(DB_NAME, JSON.stringify(purchases));
+            // Save settings too
+            localStorage.setItem('s_store', document.getElementById('store').value);
+            localStorage.setItem('s_pct', document.getElementById('percent').value);
+            localStorage.setItem('s_spot', document.getElementById('spot').value);
+            render();
+        }
+
+        function render() {
+            var list = document.getElementById('history-list');
+            var tw = 0; var tc = 0;
+            var html = '<h3>History</h3>';
+            
+            for (var i = purchases.length - 1; i >= 0; i--) {
+                var item = purchases[i];
+                tw += parseFloat(item.w);
+                tc += parseFloat(item.c);
+                html += '<div class="history-item"><div><b>' + item.p + '%</b> — ' + item.w + 'g <span style="color:gold;">$' + item.c + '</span><br><small style="color:gray;">' + item.d + ' ' + item.n + '</small></div><button class="delete-btn" data-index="' + i + '" style="color:red; background:none; border:none; font-size:24px; padding:10px; cursor:pointer; touch-action:manipulation;">×</button></div>';
+            }
+            
+            list.innerHTML = html;
+            document.getElementById('disp-w').innerHTML = tw.toFixed(2) + "g";
+            document.getElementById('disp-c').innerHTML = "$" + tc.toLocaleString();
+            
+            // Add event listeners to all delete buttons
+            var deleteButtons = document.querySelectorAll('.delete-btn');
+            for (var j = 0; j < deleteButtons.length; j++) {
+                deleteButtons[j].addEventListener('click', function() {
+                    del(parseInt(this.getAttribute('data-index')));
+                });
+            }
+        }
+
+        function del(idx) {
+            if (confirm("Delete?")) {
+                purchases.splice(idx, 1);
+                saveAndRefresh();
+            }
+        }
+
+        function exportCSV() {
+            if (purchases.length === 0) return;
+            var csv = "Date,Purity,Grams,Cost\n";
+            for (var i = 0; i < purchases.length; i++) {
+                var p = purchases[i];
+                csv += p.d + "," + p.p + "," + p.w + "," + p.c + "\n";
+            }
+            var blob = new Blob([csv], { type: 'text/csv' });
+            var url = window.URL.createObjectURL(blob);
+            var a = document.createElement("a");
+            a.href = url;
+            a.download = "gold_data.csv";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        function resetAll() {
+            if (confirm("Wipe all?")) {
+                localStorage.clear();
+                location.reload();
+            }
+        }
+    </script>
+</body>
+</html>
